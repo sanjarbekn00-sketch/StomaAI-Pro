@@ -7,12 +7,12 @@ import sqlite3
 from datetime import datetime
 from fpdf import FPDF
 
-# --- 1. КОНФИГУРАЦИЯ API ---
+# --- 1. КОНФИГУРАЦИЯ ---
 API_KEY = "AIzaSyABE6pt1de0Wm-F4VLTkxRk78kjoL9zEUs" 
 genai.configure(api_key=API_KEY)
-llm = genai.GenerativeModel('gemini-2.5-flash')
+llm = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 2. ТВОЙ ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
+# --- 2. ТВОЙ ЗОЛОТОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ) ---
 ULTRA_PROMPT = """
 ТЫ — СУПЕР-ИНТЕЛЛЕКТУАЛЬНЫЙ АВТОНОМНЫЙ ДИАГНОСТ «StomaAI PRO». 
 Твой уровень компетенции соответствует консилиуму профессоров мирового уровня. 
@@ -43,19 +43,20 @@ ULTRA_PROMPT = """
 При упоминании медикаментов всегда пиши: "⚠️ ВНИМАНИЕ: Данная схема медикаментозного лечения является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ И НАЗНАЧЕНИЯ ВАШИМ ЛЕЧАЩИМ ВРАЧОМ."
 """
 
-# --- 3. ИНТЕРФЕЙС (УДАЛЯЕМ "УПРАВЛЕНИЕ ПРИЛОЖЕНИЕМ") ---
+# --- 3. ДИЗАЙН И СКРЫТИЕ ЛИШНЕГО ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 
-# CSS для удаления всех элементов управления Streamlit и фиксации футера
 st.markdown("""
     <style>
+    /* Полное удаление управления приложением */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    div[data-testid="stStatusWidget"] {visibility: hidden;}
-    .embeddedAppMetaInfoBar_container__W_B9z {display: none !important;}
+    div[data-testid="stToolbar"] {display: none;}
+    button[title="View source"] {display: none;}
     
-    .footer-text {
+    /* Оформление футера */
+    .footer-container {
         position: fixed;
         left: 0;
         bottom: 0;
@@ -63,55 +64,58 @@ st.markdown("""
         background-color: white;
         text-align: center;
         padding: 10px;
-        font-size: 12px;
-        border-top: 1px solid #eee;
-        z-index: 100;
+        border-top: 1px solid #eaeaea;
+        z-index: 99;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. ОСНОВНОЙ ВИД (КАК БЫЛО) ---
-st.title("🦷 StomaAI PRO: Облачная Диагностика")
-
-col_input, col_file = st.columns([0.6, 0.4])
-
-with col_input:
+# --- 4. ИНТЕРФЕЙС КАК НА СКРИНШОТАХ ---
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/3467/3467830.png", width=80)
+    st.title("Пациенты")
+    st.write("---")
     patient_name = st.text_input("ФИО пациента:", "Новый пациент")
-    clinical_text = st.text_area("Опишите жалобы или задайте вопрос...", height=150)
 
-with col_file:
+st.title("🔬 StomaAI PRO: Облачная Диагностика")
+
+# Сетка ввода (как на скрине 173/176)
+col_left, col_right = st.columns([0.6, 0.4])
+
+with col_left:
+    user_text = st.text_area("Опишите жалобы или задайте вопрос...", height=200)
+
+with col_right:
     st.write("Загрузить рентген/фото")
-    uploaded_file = st.file_uploader("Upload", type=['jpg','png','jpeg'], label_visibility="collapsed")
+    up_file = st.file_uploader("Upload", type=['jpg','png','jpeg'], label_visibility="collapsed")
 
 analyze_btn = st.button("Отправить на анализ ✨")
 
-# --- 5. ЛОГИКА (БЕЗ АВТОМАТИЗМА) ---
+# --- 5. ЛОГИКА АНАЛИЗА ---
 if analyze_btn:
-    if clinical_text or uploaded_file:
-        with st.spinner("StomaAI PRO анализирует..."):
-            img_context = ""
-            img_for_gemini = None
+    if user_text or up_file:
+        with st.spinner("StomaAI PRO формирует экспертное заключение..."):
+            img_input = None
+            if up_file:
+                img_input = Image.open(up_file).convert("RGB")
             
-            if uploaded_file:
-                img_for_gemini = Image.open(uploaded_file).convert("RGB")
-                img_context = "Проведен визуальный анализ загруженного снимка."
-
-            full_query = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {patient_name}\nКЛИНИЧЕСКАЯ КАРТИНА: {clinical_text}\n{img_context}"
+            # Сборка промпта
+            final_prompt = f"{ULTRA_PROMPT}\n\nКЛИНИЧЕСКИЙ СЛУЧАЙ:\nПациент: {patient_name}\nОписание: {user_text}"
             
-            if img_for_gemini:
-                response = llm.generate_content([full_query, img_for_gemini])
+            if img_input:
+                res = llm.generate_content([final_prompt, img_input])
             else:
-                response = llm.generate_content(full_query)
+                res = llm.generate_content(final_prompt)
             
             st.divider()
-            st.markdown(response.text)
+            st.markdown(res.text)
     else:
-        st.error("Ошибка: Введите текст или загрузите снимок.")
+        st.warning("Для начала анализа введите данные или прикрепите файл.")
 
-# --- 6. ФУТЕР (ВАРНИНГ И РАЗРАБОТЧИК) ---
+# --- 6. ПРЕДУПРЕЖДЕНИЕ И РАЗРАБОТЧИК ---
 st.markdown(f"""
-    <div class="footer-text">
-        <p style="color: red; font-weight: bold;">⚠️ ВНИМАНИЕ: Данная система является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ ВРАЧА.</p>
-        <p>Разработчик: <b>Ayaz Nussan</b> | StomaAI PRO 2026</p>
+    <div class="footer-container">
+        <p style="color: #d9534f; margin-bottom: 2px;">⚠️ ВНИМАНИЕ: Данная система является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ ВРАЧА.</p>
+        <p style="color: #666; font-size: 11px;">Разработчик: <b>Ayaz Nussan</b> | StomaAI PRO 2026</p>
     </div>
     """, unsafe_allow_html=True)
