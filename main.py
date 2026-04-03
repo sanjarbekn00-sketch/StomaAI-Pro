@@ -11,7 +11,7 @@ from fpdf import FPDF
 from datetime import datetime
 
 # --- 1. КОНФИГУРАЦИЯ API ---
-API_KEY = "AIzaSyD99Uks4Lf68tsZo5HUYg98ly4Ebe9m6jU" 
+API_KEY = "AIzaSyABE6pt1de0Wm-F4VLTkxRk78kjoL9zEUs" 
 genai.configure(api_key=API_KEY)
 llm = genai.GenerativeModel('models/gemini-2.5-flash')
 
