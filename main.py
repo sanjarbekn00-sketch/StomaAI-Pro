@@ -32,7 +32,7 @@ ULTRA_PROMPT = """
 - КОМПЛЕКСНЫЙ ПЛАН ЛЕЧЕНИЯ:
     * I Фаза: Устранение острой боли/воспаления.
     * II Фаза: Санация (гигиена, лечение кариеса, эндодонтия).
-    * III Фаза: Реконструкция (ортодонтия, имплантация, ортопедия).
+    * III Фаза: Реконструкция (ортодонтия, имплантация, орпедия).
     * IV Фаза: Профилактика.
 - ПРОГНОЗ И РИСКИ: Вероятность успеха.
 
@@ -61,7 +61,7 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. СКРЫТИЕ СИСТЕМНЫХ МЕНЮ ---
+# --- 4. СКРЫТИЕ СИСТЕМНЫХ МЕНЮ И ДИЗАЙН ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 st.markdown("""
     <style>
@@ -94,15 +94,23 @@ with st.sidebar:
         
         if st.button("📥 Скачать PDF"):
             idx = [f"{r[0]} ({r[1]})" for r in records].index(selected_record)
+            patient_name_val = records[idx][0]
             content = records[idx][2]
+            
+            # Генерация PDF без внешних файлов шрифтов (Standard Arial)
             pdf = FPDF()
             pdf.add_page()
-            pdf.add_font('Arial', '', 'https://github.com/reingart/pyfpdf/raw/master/font/arial.ttf', uni=True)
-            pdf.set_font('Arial', size=11)
-            pdf.multi_cell(0, 10, txt=content)
+            pdf.set_font("Arial", 'B', 16)
+            pdf.cell(0, 10, f"STOMAAI PRO: {patient_name_val}", ln=True, align='C')
+            pdf.ln(10)
+            pdf.set_font("Arial", size=10)
             
-            pdf_output = pdf.output(dest='S').encode('latin-1', 'replace')
-            st.download_button(label="Сохранить файл", data=pdf_output, file_name=f"Protocol_{records[idx][0]}.pdf")
+            # Очистка текста от спецсимволов для PDF
+            clean_text = content.replace('**', '').replace('*', '').encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 7, txt=clean_text)
+            
+            pdf_bytes = pdf.output(dest='S')
+            st.download_button(label="Сохранить файл", data=pdf_bytes, file_name=f"Report_{patient_name_val}.pdf", mime="application/pdf")
     else:
         st.write("Архив пуст")
 
@@ -110,32 +118,36 @@ with st.sidebar:
 st.title("🔬 StomaAI PRO: Облачная Диагностика")
 
 with st.container():
-    col1, col2 = st.columns([0.6, 0.4])
-    with col1:
+    col_p, col_f = st.columns([0.6, 0.4])
+    with col_p:
         p_name = st.text_input("Инициалы пациента:", "Новый пациент")
-    with col2:
-        up_file = st.file_uploader("Загрузить снимок", type=['jpg','png','jpeg'])
+    with col_f:
+        up_file = st.file_uploader("Загрузить снимок", type=['jpg','png','jpeg'], label_visibility="collapsed")
 
-    clinical_desc = st.text_area("Описание клинической картины...", height=180)
+    clinical_desc = st.text_area("Описание клинической картины...", height=180, placeholder="Введите жалобы и анамнез...")
     
-    if st.button("Отправить на анализ ✨"):
+    if st.button("Отправить на анализ ✨", use_container_width=True):
         if clinical_desc or up_file:
-            with st.spinner("Анализ в процессе..."):
+            with st.spinner("StomaAI PRO проводит консилиум..."):
                 try:
                     img_data = Image.open(up_file).convert("RGB") if up_file else None
                     prompt = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
                     
-                    res = llm.generate_content([prompt, img_data]) if img_data else llm.generate_content(prompt)
+                    if img_data:
+                        res = llm.generate_content([prompt, img_data])
+                    else:
+                        res = llm.generate_content(prompt)
                     
                     st.divider()
                     analysis_result = res.text
                     st.markdown(analysis_result)
                     
                     save_to_db(p_name, analysis_result)
+                    st.toast("Протокол сохранен в архив!")
                 except Exception as e:
-                    st.error(f"Ошибка: {e}")
+                    st.error(f"Ошибка работы AI: {e}")
         else:
-            st.warning("Введите описание или прикрепите рентген.")
+            st.warning("Пожалуйста, заполните данные для анализа.")
 
 # --- 7. ФУТЕР ---
 st.markdown(f"""
