@@ -11,7 +11,7 @@ API_KEY = "AIzaSyCkaJmvI0dCxfm-xVmQcCJ-n9ZIFUMjsFI"
 genai.configure(api_key=API_KEY)
 llm = genai.GenerativeModel('gemini-2.5-flash')
 
-# --- 2. ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
+# --- 2. ЗОЛОТОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ) ---
 ULTRA_PROMPT = """
 ТЫ — СУПЕР-ИНТЕЛЛЕКТУАЛЬНЫЙ АВТОНОМНЫЙ ДИАГНОСТ «StomaAI PRO». 
 Твой уровень компетенции соответствует консилиуму профессоров мирового уровня. 
@@ -61,14 +61,27 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. СКРЫТИЕ ИНТЕРФЕЙСА STREAMLIT ---
+# --- 4. СТИЛИЗАЦИЯ И ПЕРЕНОС МЕНЮ ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
+
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;}
+    /* Скрываем стандартные элементы */
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    div[data-testid="stToolbar"] {display: none;}
+    
+    /* Перенос меню (стрелки) в левый нижний угол */
+    div[data-testid="stToolbar"] {
+        position: fixed;
+        bottom: 80px;
+        left: 20px;
+        z-index: 1000;
+        background: transparent !important;
+    }
+    
+    /* Убираем лишние надписи в тулбаре, оставляем только иконку */
+    div[data-testid="stToolbar"] > div:first-child { display: none; }
+    
     .footer-custom {
         position: fixed; left: 0; bottom: 0; width: 100%;
         background-color: white; text-align: center;
@@ -77,7 +90,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. АРХИВ СЛЕВА ---
+# --- 5. САЙДБАР (АРХИВ) ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3467/3467830.png", width=80)
     st.title("Архив пациентов")
@@ -90,39 +103,26 @@ with st.sidebar:
     conn.close()
 
     if records:
-        selected_record = st.selectbox("История:", [f"{r[0]} ({r[1]})" for r in records])
-        
+        selected = st.selectbox("Записи:", [f"{r[0]} ({r[1]})" for r in records])
         if st.button("📥 Скачать PDF"):
-            idx = [f"{r[0]} ({r[1]})" for r in records].index(selected_record)
-            p_name_val = records[idx][0]
-            text_val = records[idx][2]
-            
+            idx = [f"{r[0]} ({r[1]})" for r in records].index(selected)
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Helvetica", 'B', 14)
-            # Кодируем текст, чтобы не было ошибки Unicode
-            safe_name = p_name_val.encode('latin-1', 'replace').decode('latin-1')
-            pdf.cell(0, 10, f"Patient Report: {safe_name}", ln=True)
-            pdf.ln(5)
             pdf.set_font("Helvetica", size=10)
-            
-            # Чистим текст от кириллицы для PDF (т.к. стандартные шрифты её не едят без файлов)
-            # Чтобы сохранить смысл, PDF будет на латинице/символах, но в чате всё останется на русском
-            clean_txt = text_val.replace('**', '').replace('*', '')
-            pdf.multi_cell(0, 7, txt=clean_txt.encode('latin-1', 'replace').decode('latin-1'))
-            
-            st.download_button(label="Сохранить PDF", data=pdf.output(dest='S'), file_name=f"Report_{p_name_val}.pdf")
+            txt = records[idx][2].replace('**', '').replace('*', '')
+            pdf.multi_cell(0, 7, txt=txt.encode('latin-1', 'replace').decode('latin-1'))
+            st.download_button("Сохранить", pdf.output(dest='S'), f"Report_{records[idx][0]}.pdf")
     else:
         st.write("Пусто")
 
-# --- 6. ОСНОВНОЙ ЧАТ (ДИЗАЙН) ---
+# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС ---
 st.title("🔬 StomaAI PRO: Облачная Диагностика")
 
 with st.container():
-    col1, col2 = st.columns([0.6, 0.4])
-    with col1:
+    c1, c2 = st.columns([0.6, 0.4])
+    with c1:
         p_name = st.text_input("Инициалы пациента:", "Новый пациент")
-    with col2:
+    with c2:
         up_file = st.file_uploader("Рентген", type=['jpg','png','jpeg'], label_visibility="collapsed")
 
     clinical_desc = st.text_area("Клиническая картина...", height=150)
@@ -133,14 +133,13 @@ with st.container():
                 try:
                     img = Image.open(up_file).convert("RGB") if up_file else None
                     prompt = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
-                    
                     res = llm.generate_content([prompt, img]) if img else llm.generate_content(prompt)
                     
                     st.divider()
                     st.markdown(res.text)
                     save_to_db(p_name, res.text)
                 except Exception as e:
-                    st.error(f"Ошибка API: {e}")
+                    st.error(f"Ошибка: {e}")
 
 # --- 7. ФУТЕР ---
 st.markdown(f"""
