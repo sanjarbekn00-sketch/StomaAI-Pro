@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime
 from fpdf import FPDF
 import io
+import os
 
 # --- 1. КОНФИГУРАЦИЯ API ---
 API_KEY = "AIzaSyCkaJmvI0dCxfm-xVmQcCJ-n9ZIFUMjsFI" 
@@ -61,7 +62,7 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. CSS ИНЪЕКЦИЯ (СКРЫВАЕМ ТЕКСТ, ОСТАВЛЯЕМ СТРЕЛКУ) ---
+# --- 4. CSS (СКРЫВАЕМ ЛИШНЕЕ, ОСТАВЛЯЕМ СТРЕЛКУ) ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 
 st.markdown("""
@@ -69,7 +70,7 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Скрываем текст "Manage app", оставляем только саму кнопку-иконку */
+    /* Скрываем текст "Manage app", оставляем только иконку */
     [data-testid="stStatusWidget"] div:last-child {
         display: none !important;
     }
@@ -90,7 +91,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. САЙДБАР (АРХИВ ПАЦИЕНТОВ) ---
+# --- 5. САЙДБАР (АРХИВ И PDF) ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3467/3467830.png", width=80)
     st.title("Архив пациентов")
@@ -108,18 +109,25 @@ with st.sidebar:
             idx = [f"{r[0]} ({r[1]})" for r in records].index(selected)
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Helvetica", size=10)
-            # Очистка текста от кириллицы для PDF (стандартные шрифты)
-            clean_text = records[idx][2].replace('**', '').replace('*', '')
-            pdf.multi_cell(0, 7, txt=clean_text.encode('latin-1', 'replace').decode('latin-1'))
             
-            # ФИКС: Превращаем вывод в байты для Streamlit
+            # Попытка загрузки шрифта DejaVuSans для поддержки кириллицы
+            font_path = "DejaVuSans.ttf"
+            if os.path.exists(font_path):
+                pdf.add_font('DejaVu', '', font_path, uni=True)
+                pdf.set_font('DejaVu', '', 12)
+                txt_to_print = records[idx][2].replace('**', '').replace('*', '')
+            else:
+                # Если шрифта нет, используем стандартный Helvetica (кириллица будет знаками вопроса)
+                pdf.set_font("Helvetica", size=10)
+                txt_to_print = records[idx][2].encode('latin-1', 'replace').decode('latin-1')
+            
+            pdf.multi_cell(0, 7, txt=txt_to_print)
             pdf_bytes = bytes(pdf.output())
             st.download_button("Нажмите для скачивания", pdf_bytes, f"Protocol_{records[idx][0]}.pdf", mime="application/pdf")
     else:
         st.write("История пуста")
 
-# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС (ЗОНА ЧАТА) ---
+# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС ---
 st.title("🔬 StomaAI PRO: Облачная Диагностика")
 
 with st.container():
