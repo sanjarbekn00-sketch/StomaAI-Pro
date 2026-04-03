@@ -42,7 +42,7 @@ ULTRA_PROMPT = """
 При упоминании медикаментов всегда пиши: "⚠️ ВНИМАНИЕ: Данная схема медикаментозного лечения является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ И НАЗНАЧЕНИЯ ВАШИМ ЛЕЧАЩИМ ВРАЧОМ."
 """
 
-# --- 3. БАЗА ДАННЫХ (АРХИВ) ---
+# --- 3. БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('stoma_records.db')
     c = conn.cursor()
@@ -61,42 +61,25 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. НАСТРОЙКА ИНТЕРФЕЙСА И СКРЫТИЕ ТЕКСТА МЕНЮ ---
+# --- 4. CSS ИНЪЕКЦИЯ (СКРЫВАЕМ ТЕКСТ, ОСТАВЛЯЕМ СТРЕЛКУ) ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 
 st.markdown("""
     <style>
-    /* Скрываем футер и хедер */
-    footer {visibility: hidden;}
     header {visibility: hidden;}
+    footer {visibility: hidden;}
     
-    /* Скрываем текст "Manage app" или "Управление приложением", оставляем только иконку */
-    div[data-testid="stStatusWidget"] {
-        display: none;
-    }
-    
-    /* Перенос кнопки-стрелки меню в левый нижний угол */
-    .stAppDeployButton {
+    /* Скрываем текст "Manage app", оставляем только саму кнопку-иконку */
+    [data-testid="stStatusWidget"] div:last-child {
         display: none !important;
     }
     
-    #MainMenu {
+    /* Позиционируем меню разработчика в левый нижний угол */
+    [data-testid="stStatusWidget"] {
         position: fixed;
         bottom: 80px;
         left: 20px;
-        visibility: visible !important;
         z-index: 1000;
-    }
-
-    /* Делаем так, чтобы кнопка тулбара не имела текста */
-    div[data-testid="stToolbar"] {
-        position: fixed;
-        bottom: 75px;
-        left: 15px;
-        background: transparent !important;
-    }
-    div[data-testid="stToolbar"] p {
-        display: none;
     }
 
     .footer-custom {
@@ -107,7 +90,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. САЙДБАР (АРХИВ) ---
+# --- 5. САЙДБАР (АРХИВ ПАЦИЕНТОВ) ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3467/3467830.png", width=80)
     st.title("Архив пациентов")
@@ -120,15 +103,19 @@ with st.sidebar:
     conn.close()
 
     if records:
-        selected = st.selectbox("История анализов:", [f"{r[0]} ({r[1]})" for r in records])
-        if st.button("📥 Скачать выбранный PDF"):
+        selected = st.selectbox("Выбрать прием:", [f"{r[0]} ({r[1]})" for r in records])
+        if st.button("📥 Подготовить PDF"):
             idx = [f"{r[0]} ({r[1]})" for r in records].index(selected)
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Helvetica", size=10)
+            # Очистка текста от кириллицы для PDF (стандартные шрифты)
             clean_text = records[idx][2].replace('**', '').replace('*', '')
             pdf.multi_cell(0, 7, txt=clean_text.encode('latin-1', 'replace').decode('latin-1'))
-            st.download_button("Сохранить файл", pdf.output(dest='S'), f"Protocol_{records[idx][0]}.pdf")
+            
+            # ФИКС: Превращаем вывод в байты для Streamlit
+            pdf_bytes = bytes(pdf.output())
+            st.download_button("Нажмите для скачивания", pdf_bytes, f"Protocol_{records[idx][0]}.pdf", mime="application/pdf")
     else:
         st.write("История пуста")
 
@@ -146,23 +133,21 @@ with st.container():
     
     if st.button("Отправить на анализ ✨", use_container_width=True):
         if clinical_desc or up_file:
-            with st.spinner("StomaAI PRO формирует заключение..."):
+            with st.spinner("StomaAI PRO анализирует случай..."):
                 try:
                     img = Image.open(up_file).convert("RGB") if up_file else None
                     prompt = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
-                    
                     res = llm.generate_content([prompt, img]) if img else llm.generate_content(prompt)
                     
                     st.divider()
                     st.markdown(res.text)
                     save_to_db(p_name, res.text)
-                    st.toast("Анализ сохранен в архив!")
                 except Exception as e:
-                    st.error(f"Ошибка системы: {e}")
+                    st.error(f"Ошибка API: {e}")
         else:
-            st.warning("Введите описание случая или загрузите рентген.")
+            st.warning("Введите описание или загрузите рентген.")
 
-# --- 7. ФУТЕР (ВАРНИНГ И АВТОР) ---
+# --- 7. ФУТЕР ---
 st.markdown(f"""
     <div class="footer-custom">
         <p style="color: red; font-weight: bold; margin: 0;">⚠️ ВНИМАНИЕ: Данная система является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ ВРАЧА.</p>
