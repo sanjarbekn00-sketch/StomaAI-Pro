@@ -10,7 +10,7 @@ from fpdf import FPDF
 # --- 1. КОНФИГУРАЦИЯ ---
 API_KEY = "AIzaSyABE6pt1de0Wm-F4VLTkxRk78kjoL9zEUs" 
 genai.configure(api_key=API_KEY)
-llm = genai.GenerativeModel('gemini-1.5-flash')
+llm = genai.GenerativeModel('gemini-2.5-flash')
 
 # --- 2. ТВОЙ ЗОЛОТОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ) ---
 ULTRA_PROMPT = """
