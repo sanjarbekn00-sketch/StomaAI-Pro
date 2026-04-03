@@ -13,7 +13,7 @@ from datetime import datetime
 # --- 1. КОНФИГУРАЦИЯ API ---
 API_KEY = "AIzaSyD99Uks4Lf68tsZo5HUYg98ly4Ebe9m6jU" 
 genai.configure(api_key=API_KEY)
-llm = genai.GenerativeModel('models/gemini-1.5-flash')
+llm = genai.GenerativeModel('models/gemini-2.5-flash')
 
 # --- 2. ТВОЙ ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
 ULTRA_PROMPT = """
