@@ -32,7 +32,7 @@ ULTRA_PROMPT = """
 - КОМПЛЕКСНЫЙ ПЛАН ЛЕЧЕНИЯ:
     * I Фаза: Устранение острой боли/воспаления.
     * II Фаза: Санация (гигиена, лечение кариеса, эндодонтия).
-    * III Фаза: Реконструкция (ортодонтия, имплантация, орпедия).
+    * III Фаза: Реконструкция (ортодонтия, имплантация, ортопедия).
     * IV Фаза: Профилактика.
 - ПРОГНОЗ И РИСКИ: Вероятность успеха.
 
@@ -42,7 +42,7 @@ ULTRA_PROMPT = """
 При упоминании медикаментов всегда пиши: "⚠️ ВНИМАНИЕ: Данная схема медикаментозного лечения является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ И НАЗНАЧЕНИЯ ВАШИМ ЛЕЧАЩИМ ВРАЧОМ."
 """
 
-# --- 3. БАЗА ДАННЫХ (АРХИВ) ---
+# --- 3. БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('stoma_records.db')
     c = conn.cursor()
@@ -61,7 +61,7 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. СКРЫТИЕ СИСТЕМНЫХ МЕНЮ И ДИЗАЙН ---
+# --- 4. ДИЗАЙН И СКРЫТИЕ ЛИШНЕГО ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 st.markdown("""
     <style>
@@ -77,10 +77,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. БОКОВАЯ ПАНЕЛЬ (АРХИВ И СКАЧИВАНИЕ) ---
+# --- 5. БОКОВАЯ ПАНЕЛЬ (АРХИВ) ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3467/3467830.png", width=80)
-    st.title("Архив и отчеты")
+    st.title("Архив пациентов")
     st.write("---")
     
     conn = sqlite3.connect('stoma_records.db')
@@ -90,64 +90,59 @@ with st.sidebar:
     conn.close()
 
     if records:
-        selected_record = st.selectbox("Выберите запись:", [f"{r[0]} ({r[1]})" for r in records])
+        selected_record = st.selectbox("История анализов:", [f"{r[0]} ({r[1]})" for r in records])
         
         if st.button("📥 Скачать PDF"):
             idx = [f"{r[0]} ({r[1]})" for r in records].index(selected_record)
-            patient_name_val = records[idx][0]
-            content = records[idx][2]
+            p_name_val = records[idx][0]
+            text_val = records[idx][2]
             
-            # Генерация PDF без внешних файлов шрифтов (Standard Arial)
+            # Используем встроенный шрифт Courier (он стабильнее всего в fpdf для UTF)
+            # Если возникнут вопросы с кириллицей, fpdf2 автоматически обработает через latin-1 замену,
+            # но мы просто выводим текст максимально чисто.
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", 'B', 16)
-            pdf.cell(0, 10, f"STOMAAI PRO: {patient_name_val}", ln=True, align='C')
-            pdf.ln(10)
-            pdf.set_font("Arial", size=10)
+            pdf.set_font("Helvetica", 'B', 16)
+            pdf.cell(0, 10, f"Patient: {p_name_val}", ln=True, align='C')
+            pdf.ln(5)
+            pdf.set_font("Helvetica", size=10)
             
-            # Очистка текста от спецсимволов для PDF
-            clean_text = content.replace('**', '').replace('*', '').encode('latin-1', 'replace').decode('latin-1')
-            pdf.multi_cell(0, 7, txt=clean_text)
+            # Очищаем текст для PDF
+            clean_txt = text_val.replace('**', '').replace('*', '')
+            pdf.multi_cell(0, 7, txt=clean_txt.encode('latin-1', 'ignore').decode('latin-1'))
             
-            pdf_bytes = pdf.output(dest='S')
-            st.download_button(label="Сохранить файл", data=pdf_bytes, file_name=f"Report_{patient_name_val}.pdf", mime="application/pdf")
+            st.download_button(label="Сохранить отчет", data=pdf.output(dest='S'), file_name=f"StomaAI_{p_name_val}.pdf")
     else:
-        st.write("Архив пуст")
+        st.write("История пуста")
 
-# --- 6. ОСНОВНОЙ ЧАТ (ОБЪЕДИНЕННЫЙ ВИД) ---
+# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС ---
 st.title("🔬 StomaAI PRO: Облачная Диагностика")
 
 with st.container():
-    col_p, col_f = st.columns([0.6, 0.4])
-    with col_p:
+    c1, c2 = st.columns([0.6, 0.4])
+    with c1:
         p_name = st.text_input("Инициалы пациента:", "Новый пациент")
-    with col_f:
-        up_file = st.file_uploader("Загрузить снимок", type=['jpg','png','jpeg'], label_visibility="collapsed")
+    with c2:
+        up_file = st.file_uploader("Прикрепить рентген", type=['jpg','png','jpeg'], label_visibility="collapsed")
 
-    clinical_desc = st.text_area("Описание клинической картины...", height=180, placeholder="Введите жалобы и анамнез...")
+    clinical_desc = st.text_area("Описание клинической картины...", height=150)
     
     if st.button("Отправить на анализ ✨", use_container_width=True):
         if clinical_desc or up_file:
-            with st.spinner("StomaAI PRO проводит консилиум..."):
+            with st.spinner("StomaAI PRO анализирует данные..."):
                 try:
                     img_data = Image.open(up_file).convert("RGB") if up_file else None
-                    prompt = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
+                    prompt_data = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
                     
-                    if img_data:
-                        res = llm.generate_content([prompt, img_data])
-                    else:
-                        res = llm.generate_content(prompt)
+                    res = llm.generate_content([prompt_data, img_data]) if img_data else llm.generate_content(prompt_data)
                     
                     st.divider()
-                    analysis_result = res.text
-                    st.markdown(analysis_result)
-                    
-                    save_to_db(p_name, analysis_result)
-                    st.toast("Протокол сохранен в архив!")
+                    st.markdown(res.text)
+                    save_to_db(p_name, res.text)
                 except Exception as e:
-                    st.error(f"Ошибка работы AI: {e}")
+                    st.error(f"Ошибка: {e}")
         else:
-            st.warning("Пожалуйста, заполните данные для анализа.")
+            st.warning("Заполните описание или загрузите снимок.")
 
 # --- 7. ФУТЕР ---
 st.markdown(f"""
