@@ -11,7 +11,7 @@ API_KEY = "AIzaSyCkaJmvI0dCxfm-xVmQcCJ-n9ZIFUMjsFI"
 genai.configure(api_key=API_KEY)
 llm = genai.GenerativeModel('gemini-2.5-flash')
 
-# --- 2. ЗОЛОТОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ) ---
+# --- 2. ТОТ САМЫЙ ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
 ULTRA_PROMPT = """
 ТЫ — СУПЕР-ИНТЕЛЛЕКТУАЛЬНЫЙ АВТОНОМНЫЙ ДИАГНОСТ «StomaAI PRO». 
 Твой уровень компетенции соответствует консилиуму профессоров мирового уровня. 
@@ -42,7 +42,7 @@ ULTRA_PROMPT = """
 При упоминании медикаментов всегда пиши: "⚠️ ВНИМАНИЕ: Данная схема медикаментозного лечения является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ И НАЗНАЧЕНИЯ ВАШИМ ЛЕЧАЩИМ ВРАЧОМ."
 """
 
-# --- 3. БАЗА ДАННЫХ ---
+# --- 3. БАЗА ДАННЫХ (АРХИВ) ---
 def init_db():
     conn = sqlite3.connect('stoma_records.db')
     c = conn.cursor()
@@ -61,27 +61,44 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. СТИЛИЗАЦИЯ И ПЕРЕНОС МЕНЮ ---
+# --- 4. НАСТРОЙКА ИНТЕРФЕЙСА И СКРЫТИЕ ТЕКСТА МЕНЮ ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 
 st.markdown("""
     <style>
-    /* Скрываем стандартные элементы */
+    /* Скрываем футер и хедер */
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Перенос меню (стрелки) в левый нижний угол */
-    div[data-testid="stToolbar"] {
+    /* Скрываем текст "Manage app" или "Управление приложением", оставляем только иконку */
+    div[data-testid="stStatusWidget"] {
+        display: none;
+    }
+    
+    /* Перенос кнопки-стрелки меню в левый нижний угол */
+    .stAppDeployButton {
+        display: none !important;
+    }
+    
+    #MainMenu {
         position: fixed;
         bottom: 80px;
         left: 20px;
+        visibility: visible !important;
         z-index: 1000;
+    }
+
+    /* Делаем так, чтобы кнопка тулбара не имела текста */
+    div[data-testid="stToolbar"] {
+        position: fixed;
+        bottom: 75px;
+        left: 15px;
         background: transparent !important;
     }
-    
-    /* Убираем лишние надписи в тулбаре, оставляем только иконку */
-    div[data-testid="stToolbar"] > div:first-child { display: none; }
-    
+    div[data-testid="stToolbar"] p {
+        display: none;
+    }
+
     .footer-custom {
         position: fixed; left: 0; bottom: 0; width: 100%;
         background-color: white; text-align: center;
@@ -103,19 +120,19 @@ with st.sidebar:
     conn.close()
 
     if records:
-        selected = st.selectbox("Записи:", [f"{r[0]} ({r[1]})" for r in records])
-        if st.button("📥 Скачать PDF"):
+        selected = st.selectbox("История анализов:", [f"{r[0]} ({r[1]})" for r in records])
+        if st.button("📥 Скачать выбранный PDF"):
             idx = [f"{r[0]} ({r[1]})" for r in records].index(selected)
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Helvetica", size=10)
-            txt = records[idx][2].replace('**', '').replace('*', '')
-            pdf.multi_cell(0, 7, txt=txt.encode('latin-1', 'replace').decode('latin-1'))
-            st.download_button("Сохранить", pdf.output(dest='S'), f"Report_{records[idx][0]}.pdf")
+            clean_text = records[idx][2].replace('**', '').replace('*', '')
+            pdf.multi_cell(0, 7, txt=clean_text.encode('latin-1', 'replace').decode('latin-1'))
+            st.download_button("Сохранить файл", pdf.output(dest='S'), f"Protocol_{records[idx][0]}.pdf")
     else:
-        st.write("Пусто")
+        st.write("История пуста")
 
-# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС ---
+# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС (ЗОНА ЧАТА) ---
 st.title("🔬 StomaAI PRO: Облачная Диагностика")
 
 with st.container():
@@ -123,25 +140,29 @@ with st.container():
     with c1:
         p_name = st.text_input("Инициалы пациента:", "Новый пациент")
     with c2:
-        up_file = st.file_uploader("Рентген", type=['jpg','png','jpeg'], label_visibility="collapsed")
+        up_file = st.file_uploader("Прикрепить снимок", type=['jpg','png','jpeg'], label_visibility="collapsed")
 
-    clinical_desc = st.text_area("Клиническая картина...", height=150)
+    clinical_desc = st.text_area("Клиническая картина и жалобы...", height=150)
     
     if st.button("Отправить на анализ ✨", use_container_width=True):
         if clinical_desc or up_file:
-            with st.spinner("Диагностика..."):
+            with st.spinner("StomaAI PRO формирует заключение..."):
                 try:
                     img = Image.open(up_file).convert("RGB") if up_file else None
                     prompt = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
+                    
                     res = llm.generate_content([prompt, img]) if img else llm.generate_content(prompt)
                     
                     st.divider()
                     st.markdown(res.text)
                     save_to_db(p_name, res.text)
+                    st.toast("Анализ сохранен в архив!")
                 except Exception as e:
-                    st.error(f"Ошибка: {e}")
+                    st.error(f"Ошибка системы: {e}")
+        else:
+            st.warning("Введите описание случая или загрузите рентген.")
 
-# --- 7. ФУТЕР ---
+# --- 7. ФУТЕР (ВАРНИНГ И АВТОР) ---
 st.markdown(f"""
     <div class="footer-custom">
         <p style="color: red; font-weight: bold; margin: 0;">⚠️ ВНИМАНИЕ: Данная система является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ ВРАЧА.</p>
