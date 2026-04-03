@@ -134,7 +134,12 @@ for m in st.session_state.chat:
     with st.chat_message(m["role"]): 
         st.write(m["content"])
         if "pdf" in m: 
-            st.download_button("📥 Скачать клинический отчет PDF", m["pdf"], f"Report_{patient_name}.pdf")
+            st.download_button(
+    label="📥 Скачать клинический отчет PDF",
+    data=m["pdf"],
+    file_name="Clinical_Report.pdf",
+    mime="application/pdf"
+)
 
 # Панель ввода
 st.divider()
