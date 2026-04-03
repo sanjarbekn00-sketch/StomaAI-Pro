@@ -6,12 +6,12 @@ from datetime import datetime
 from fpdf import FPDF
 import io
 
-# --- 1. НАСТРОЙКИ API ---
+# --- 1. КОНФИГУРАЦИЯ API ---
 API_KEY = "AIzaSyCkaJmvI0dCxfm-xVmQcCJ-n9ZIFUMjsFI" 
 genai.configure(api_key=API_KEY)
 llm = genai.GenerativeModel('gemini-2.5-flash')
 
-# --- 2. ТОТ САМЫЙ ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
+# --- 2. ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
 ULTRA_PROMPT = """
 ТЫ — СУПЕР-ИНТЕЛЛЕКТУАЛЬНЫЙ АВТОНОМНЫЙ ДИАГНОСТ «StomaAI PRO». 
 Твой уровень компетенции соответствует консилиуму профессоров мирового уровня. 
@@ -61,7 +61,7 @@ def save_to_db(name, analysis):
 
 init_db()
 
-# --- 4. ДИЗАЙН И СКРЫТИЕ ЛИШНЕГО ---
+# --- 4. СКРЫТИЕ ИНТЕРФЕЙСА STREAMLIT ---
 st.set_page_config(page_title="StomaAI PRO", layout="wide")
 st.markdown("""
     <style>
@@ -77,7 +77,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. БОКОВАЯ ПАНЕЛЬ (АРХИВ) ---
+# --- 5. АРХИВ СЛЕВА ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3467/3467830.png", width=80)
     st.title("Архив пациентов")
@@ -90,59 +90,57 @@ with st.sidebar:
     conn.close()
 
     if records:
-        selected_record = st.selectbox("История анализов:", [f"{r[0]} ({r[1]})" for r in records])
+        selected_record = st.selectbox("История:", [f"{r[0]} ({r[1]})" for r in records])
         
         if st.button("📥 Скачать PDF"):
             idx = [f"{r[0]} ({r[1]})" for r in records].index(selected_record)
             p_name_val = records[idx][0]
             text_val = records[idx][2]
             
-            # Используем встроенный шрифт Courier (он стабильнее всего в fpdf для UTF)
-            # Если возникнут вопросы с кириллицей, fpdf2 автоматически обработает через latin-1 замену,
-            # но мы просто выводим текст максимально чисто.
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Helvetica", 'B', 16)
-            pdf.cell(0, 10, f"Patient: {p_name_val}", ln=True, align='C')
+            pdf.set_font("Helvetica", 'B', 14)
+            # Кодируем текст, чтобы не было ошибки Unicode
+            safe_name = p_name_val.encode('latin-1', 'replace').decode('latin-1')
+            pdf.cell(0, 10, f"Patient Report: {safe_name}", ln=True)
             pdf.ln(5)
             pdf.set_font("Helvetica", size=10)
             
-            # Очищаем текст для PDF
+            # Чистим текст от кириллицы для PDF (т.к. стандартные шрифты её не едят без файлов)
+            # Чтобы сохранить смысл, PDF будет на латинице/символах, но в чате всё останется на русском
             clean_txt = text_val.replace('**', '').replace('*', '')
-            pdf.multi_cell(0, 7, txt=clean_txt.encode('latin-1', 'ignore').decode('latin-1'))
+            pdf.multi_cell(0, 7, txt=clean_txt.encode('latin-1', 'replace').decode('latin-1'))
             
-            st.download_button(label="Сохранить отчет", data=pdf.output(dest='S'), file_name=f"StomaAI_{p_name_val}.pdf")
+            st.download_button(label="Сохранить PDF", data=pdf.output(dest='S'), file_name=f"Report_{p_name_val}.pdf")
     else:
-        st.write("История пуста")
+        st.write("Пусто")
 
-# --- 6. ОСНОВНОЙ ИНТЕРФЕЙС ---
+# --- 6. ОСНОВНОЙ ЧАТ (ДИЗАЙН) ---
 st.title("🔬 StomaAI PRO: Облачная Диагностика")
 
 with st.container():
-    c1, c2 = st.columns([0.6, 0.4])
-    with c1:
+    col1, col2 = st.columns([0.6, 0.4])
+    with col1:
         p_name = st.text_input("Инициалы пациента:", "Новый пациент")
-    with c2:
-        up_file = st.file_uploader("Прикрепить рентген", type=['jpg','png','jpeg'], label_visibility="collapsed")
+    with col2:
+        up_file = st.file_uploader("Рентген", type=['jpg','png','jpeg'], label_visibility="collapsed")
 
-    clinical_desc = st.text_area("Описание клинической картины...", height=150)
+    clinical_desc = st.text_area("Клиническая картина...", height=150)
     
     if st.button("Отправить на анализ ✨", use_container_width=True):
         if clinical_desc or up_file:
-            with st.spinner("StomaAI PRO анализирует данные..."):
+            with st.spinner("Диагностика..."):
                 try:
-                    img_data = Image.open(up_file).convert("RGB") if up_file else None
-                    prompt_data = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
+                    img = Image.open(up_file).convert("RGB") if up_file else None
+                    prompt = f"{ULTRA_PROMPT}\n\nПАЦИЕНТ: {p_name}\nКЛИНИКА: {clinical_desc}"
                     
-                    res = llm.generate_content([prompt_data, img_data]) if img_data else llm.generate_content(prompt_data)
+                    res = llm.generate_content([prompt, img]) if img else llm.generate_content(prompt)
                     
                     st.divider()
                     st.markdown(res.text)
                     save_to_db(p_name, res.text)
                 except Exception as e:
-                    st.error(f"Ошибка: {e}")
-        else:
-            st.warning("Заполните описание или загрузите снимок.")
+                    st.error(f"Ошибка API: {e}")
 
 # --- 7. ФУТЕР ---
 st.markdown(f"""
