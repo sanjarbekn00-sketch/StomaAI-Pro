@@ -13,7 +13,8 @@ from datetime import datetime
 # --- 1. КОНФИГУРАЦИЯ API ---
 API_KEY = "AIzaSyABE6pt1de0Wm-F4VLTkxRk78kjoL9zEUs" 
 genai.configure(api_key=API_KEY)
-llm = genai.GenerativeModel('models/gemini-2.5-flash')
+# Используем flash для скорости
+llm = genai.GenerativeModel('gemini-2.5-flash')
 
 # --- 2. ТВОЙ ЗОЛОТОЙ ПРОМПТ (НЕПРИКОСНОВЕННЫЙ) ---
 ULTRA_PROMPT = """
@@ -46,28 +47,21 @@ ULTRA_PROMPT = """
 При упоминании медикаментов всегда пиши: "⚠️ ВНИМАНИЕ: Данная схема медикаментозного лечения является ознакомительной. ПРИМЕНЕНИЕ ЛЮБЫХ ПРЕПАРАТОВ ВОЗМОЖНО ТОЛЬКО ПОСЛЕ ОЧНОЙ КОНСУЛЬТАЦИИ И НАЗНАЧЕНИЯ ВАШИМ ЛЕЧАЩИМ ВРАЧОМ."
 """
 
-# --- 3. ФУНКЦИИ ОБРАБОТКИ ЗНАНИЙ ---
-def extract_kb_data():
-    kb_dir = "knowledge_base"
-    if not os.path.exists(kb_dir):
-        os.makedirs(kb_dir)
-        return "База знаний пуста. Загрузите PDF/DOCX в папку knowledge_base."
-    text = ""
-    for f in os.listdir(kb_dir):
-        p = os.path.join(kb_dir, f)
-        try:
-            if f.endswith(".pdf"):
-                for page in PdfReader(p).pages: text += (page.extract_text() or "")
-            elif f.endswith(".docx"):
-                for para in Document(p).paragraphs: text += para.text + "\n"
-            elif f.endswith(".xlsx"): text += pd.read_excel(p).to_string()
-            elif f.endswith(".txt"):
-                with open(p, "r", encoding="utf-8") as file: text += file.read()
-        except Exception as e:
-            st.warning(f"Не удалось прочитать {f}: {e}")
-    return text[:25000]
+# --- 3. ИНТЕРФЕЙС И СТИЛИ ---
+st.set_page_config(page_title="StomaAI PRO", layout="wide", page_icon="🦷")
 
-# --- 4. БАЗА ДАННЫХ ---
+st.markdown("""
+    <style>
+    .footer {
+        position: fixed; left: 0; bottom: 0; width: 100%;
+        background-color: white; color: gray; text-align: center;
+        padding: 10px; font-size: 12px; border-top: 1px solid #eee; z-index: 100;
+    }
+    .stChatMessage { border-radius: 15px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def init_db():
     conn = sqlite3.connect('stoma_pro.db', check_same_thread=False)
     conn.execute('CREATE TABLE IF NOT EXISTS diag (name TEXT, date TEXT, report TEXT)')
@@ -76,116 +70,97 @@ def init_db():
 
 db = init_db()
 
-# --- 5. ГЕНЕРАЦИЯ PDF ---
-def make_pdf(content, name, img_o, img_y):
-    pdf = FPDF()
-    pdf.add_page()
-    # Поиск шрифта в текущей папке
-    font_file = "DejaVuSans.ttf"
-    if os.path.exists(font_file):
-        pdf.add_font('DejaVu', '', font_file, uni=True)
-        pdf.set_font('DejaVu', '', 11)
-    else:
-        pdf.set_font('Helvetica', '', 11)
-    
-    pdf.set_text_color(0, 50, 150)
-    pdf.cell(0, 10, "STOMAAI PRO CLINICAL REPORT", ln=True, align='C')
-    pdf.ln(5)
-    pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 10, f"Patient: {name} | Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
-    
-    y_pos = pdf.get_y()
-    # Вставляем снимки, если они есть
-    if img_o and os.path.exists(img_o): pdf.image(img_o, x=10, y=y_pos+5, w=90)
-    if img_y and os.path.exists(img_y): pdf.image(img_y, x=105, y=y_pos+5, w=90)
-    
-    pdf.set_y(y_pos + 65)
-    pdf.multi_cell(0, 7, content.replace('*', '').replace('#', ''))
-    return pdf.output(dest='S')
-
-# --- 6. ИНТЕРФЕЙС STREAMLIT ---
-st.set_page_config(page_title="StomaAI PRO Server", layout="wide", page_icon="🔬")
-
-# Загрузка модели YOLO
 @st.cache_resource
 def load_yolo():
-    for m_path in ['best.pt', 'yolov8n.pt']:
-        if os.path.exists(m_path):
-            return YOLO(m_path)
-    return None
+    return YOLO('best.pt') if os.path.exists('best.pt') else None
 
-model = load_yolo()
+yolo_model = load_yolo()
 
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/387/387561.png", width=100)
-    st.title("🗂 Пациенты")
-    cursor = db.cursor()
-    cursor.execute("SELECT name, date, report FROM diag ORDER BY rowid DESC LIMIT 10")
-    recent = cursor.fetchall()
-    for n, d, r in recent:
-        with st.expander(f"👤 {n} ({d})"):
-            st.write(r[:300] + "...")
+def make_pdf(content, name):
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt=f"REPORT: {name}", ln=1, align="C")
+        pdf.multi_cell(0, 10, txt=content.encode('latin-1', 'replace').decode('latin-1'))
+        return pdf.output(dest='S').encode('latin-1')
+    except: return None
 
-st.title("🔬 StomaAI PRO: Облачная Диагностика")
-if "chat" not in st.session_state: st.session_state.chat = []
+# --- 5. РАБОТА С ЧАТОМ ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Вывод чата
-for m in st.session_state.chat:
-    with st.chat_message(m["role"]): 
-        st.write(m["content"])
-        if "pdf" in m: 
-            st.download_button(
-    label="📥 Скачать клинический отчет PDF",
-    data=m["pdf"],
-    file_name="Clinical_Report.pdf",
-    mime="application/pdf"
-)
+# Вывод истории
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+        if "pdf" in m and m["pdf"]:
+            st.download_button("📥 Скачать PDF", m["pdf"], "report.pdf", "application/pdf")
 
-# Панель ввода
+# --- 6. САУНДБАР (ВВОД) ---
 st.divider()
-col1, col2 = st.columns([2, 3])
-with col1:
-    name = st.text_input("ФИО пациента:", "Новый пациент")
-    up = st.file_uploader("Загрузить рентген/фото", type=['jpg','png','jpeg'])
-with col2:
-    txt = st.chat_input("Опишите жалобы или задайте вопрос...")
+input_col, file_col = st.columns([0.8, 0.2])
 
-if txt or up:
-    st.session_state.chat.append({"role": "user", "content": txt or "Анализ изображения"})
-    with st.chat_message("assistant"):
-        with st.spinner("Обработка данных..."):
-            kb = extract_kb_data()
-            o_p, y_p = "temp_orig.png", "temp_yolo.png"
-            findings = "Анализ по визуальным признакам"
-            
-            if up:
-                img = Image.open(up).convert("RGB")
-                img.save(o_p)
-                if model:
-                    res = model(img)
-                    det = [model.names[int(b.cls[0])] for b in res[0].boxes]
-                    findings = ", ".join(set(det)) if det else "Патологий на снимке не обнаружено"
-                    res_img = res[0].plot()
-                    Image.fromarray(res_img).save(y_p)
-                    st.image(res_img, caption="Результат распознавания ИИ")
+with input_col:
+    txt = st.text_input("Описание клинической картины...", key="user_txt", label_visibility="collapsed")
+
+with file_col:
+    up = st.file_uploader("📎", type=['jpg','png','jpeg'], label_visibility="collapsed")
+
+# Поле для имени в сайдбаре
+with st.sidebar:
+    st.title("🗂 Пациенты")
+    patient_name = st.text_input("ФИО Пациента:", "Новый пациент")
+
+# Логика обработки
+if st.button("Отправить на анализ ✨", use_container_width=True):
+    if txt or up:
+        # 1. Показываем ввод пользователя
+        with st.chat_message("user"):
+            if txt: st.markdown(txt)
+            if up: st.image(up, width=300)
+        
+        st.session_state.messages.append({"role": "user", "content": txt or "Анализ снимка"})
+
+        # 2. Анализ
+        with st.chat_message("assistant"):
+            with st.spinner("StomaAI PRO анализирует..."):
+                findings = ""
+                img_for_ai = None
                 
-                prompt = f"{ULTRA_PROMPT}\n\nБАЗА ЗНАНИЙ:\n{kb}\n\nДАННЫЕ: {name}, YOLO НАШЛА: {findings}, ТЕКСТ: {txt}"
-                ai_res = llm.generate_content([prompt, img]).text
-            else:
-                ai_res = llm.generate_content(f"{ULTRA_PROMPT}\n\nБАЗА ЗНАНИЙ:\n{kb}\n\nТЕКСТ: {txt}").text
-            
-            st.markdown(ai_res)
-            
-            # Сохраняем в базу
-            db.execute("INSERT INTO diag VALUES (?, ?, ?)", (name, datetime.now().strftime("%Y-%m-%d"), ai_res))
-            db.commit()
-            
-            # Генерируем PDF
-            pdf = make_pdf(ai_res, name, o_p if up else None, y_p if up else None)
-            st.session_state.chat.append({"role": "assistant", "content": ai_res, "pdf": pdf})
-            
-            # Удаляем временные файлы
-            for f in [o_p, y_p]: 
-                if os.path.exists(f): os.remove(f)
-            
-            st.rerun()
+                if up:
+                    img_for_ai = Image.open(up).convert("RGB")
+                    if yolo_model:
+                        res = yolo_model(img_for_ai)
+                        det = [yolo_model.names[int(b.cls[0])] for b in res[0].boxes]
+                        findings = f"YOLO обнаружила: {', '.join(set(det))}"
+                        st.image(res[0].plot(), caption="Обнаруженные зоны", width=400)
+
+                prompt = f"{ULTRA_PROMPT}\nПАЦИЕНТ: {patient_name}\nТЕКСТ: {txt}\nДАННЫЕ ЗРЕНИЯ: {findings}"
+                
+                if up:
+                    response = llm.generate_content([prompt, img_for_ai])
+                else:
+                    response = llm.generate_content(prompt)
+                
+                ai_res = response.text
+                st.markdown(ai_res)
+                
+                # PDF и БД
+                pdf_file = make_pdf(ai_res, patient_name)
+                db.execute("INSERT INTO diag VALUES (?, ?, ?)", (patient_name, datetime.now().strftime("%Y-%m-%d"), ai_res))
+                db.commit()
+                
+                st.session_state.messages.append({"role": "assistant", "content": ai_res, "pdf": pdf_file})
+                if pdf_file:
+                    st.download_button("📥 Скачать клинический отчет PDF", pdf_file, f"{patient_name}.pdf")
+        
+        st.rerun()
+
+# --- 7. ФУТЕР ---
+st.markdown(f"""
+    <div class="footer">
+        <p>⚠️ <b>ВНИМАНИЕ:</b> Инструмент поддержки. Требуется верификация врачом.</p>
+        <p>Разработчик: <b>Ayaz Nussan</b> | StomaAI PRO 2026</p>
+    </div>
+    """, unsafe_allow_html=True)
