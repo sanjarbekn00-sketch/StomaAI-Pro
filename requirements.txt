@@ -1,9 +1,6 @@
 streamlit
 ultralytics
+opencv-python-headless
 google-generativeai
 Pillow
-fpdf2
-python-docx
-PyPDF2
 pandas
-openpyxl
