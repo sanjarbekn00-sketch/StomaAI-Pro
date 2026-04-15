@@ -8,7 +8,7 @@ import io
 import os
 
 # --- 1. КОНФИГУРАЦИЯ API ---
-API_KEY = "AIzaSyCNo5cmQl1nvnqirqTJAvRTzma_9VcSSDE" 
+API_KEY = "AIzaSyARPtmUAuRdt0VF6DeJhqIOQEVrVseWAfA" 
 genai.configure(api_key=API_KEY)
 llm = genai.GenerativeModel('gemini-2.5-flash')
 
